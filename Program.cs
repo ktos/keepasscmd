@@ -22,14 +22,14 @@ auth.SetAction(async _ =>
         await client.Connect();
         var pairing = await client.Pair();
         var path = PairingPath();
-        
+
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var data = JsonSerializer.SerializeToUtf8Bytes(pairing, AppJsonContext.Default.Pairing);
         await File.WriteAllBytesAsync(
             path,
             ProtectedData.Protect(data, null, DataProtectionScope.CurrentUser)
         );
-        
+
         CryptographicOperations.ZeroMemory(data);
         Console.Error.WriteLine("Authorization saved.");
     })
@@ -44,13 +44,13 @@ get.SetAction(async parse =>
         var path = PairingPath();
         if (!File.Exists(path))
             throw new InvalidOperationException("Not authorized. Run 'auth' first.");
-        
+
         var data = ProtectedData.Unprotect(
             await File.ReadAllBytesAsync(path),
             null,
             DataProtectionScope.CurrentUser
         );
-        
+
         Pairing pairing;
         try
         {
@@ -61,13 +61,13 @@ get.SetAction(async parse =>
         {
             CryptographicOperations.ZeroMemory(data);
         }
-        
+
         using var client = new KeePassRpcClient();
         await client.Connect();
         await client.Authenticate(pairing);
-        
+
         var entry = await client.GetEntry(parse.GetValue(name)!);
-        
+
         Console.WriteLine(
             parse.GetValue(json)
                 ? JsonSerializer.Serialize(

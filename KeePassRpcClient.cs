@@ -34,7 +34,7 @@ sealed class KeePassRpcClient : IDisposable
         var username = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
         var a = new BigInteger(RandomNumberGenerator.GetBytes(32), true, true);
         var A = BigInteger.ModPow(2, a, N);
-        
+
         var identify = IdentityMessage();
         identify["srp"] = new JsonObject
         {
@@ -43,39 +43,39 @@ sealed class KeePassRpcClient : IDisposable
             ["A"] = Hex(A),
             ["securityLevel"] = 2,
         };
-        
+
         await Send(identify);
-        
+
         var response = await Receive();
         var srp = Setup(response, "srp");
         if (Text(srp, "stage") != "identifyToClient")
             throw new InvalidOperationException("Unexpected SRP response.");
-        
+
         var B = Number(Text(srp, "B"));
         if (B <= 0 || B % N == 0)
             throw new InvalidOperationException("Invalid server SRP value.");
         Console.Error.Write("Enter the one-time code displayed by KeePass: ");
-        
+
         var password = Console.ReadLine();
         if (string.IsNullOrWhiteSpace(password))
             throw new InvalidOperationException("No authorization code entered.");
-        
+
         var x = HashNumber(Text(srp, "s") + password.Trim());
         var u = HashNumber(Hex(A) + Hex(B));
         var paddedGenerator = new byte[64];
         paddedGenerator[^1] = 2;
-        
+
         var k = new BigInteger(
             SHA1.HashData(N.ToByteArray(true, true).Concat(paddedGenerator).ToArray()),
             true,
             true
         );
-        
+
         var basis = ((B - k * BigInteger.ModPow(2, x, N)) % N + N) % N;
         var S = BigInteger.ModPow(basis, a + u * x, N);
         var mBytes = SHA256.HashData(Encoding.UTF8.GetBytes(Hex(A) + Hex(B) + Hex(S)));
         var expected = HashNumber(Hex(A) + Convert.ToHexString(mBytes).ToLowerInvariant() + Hex(S));
-        
+
         await Send(
             new JsonObject
             {
@@ -89,13 +89,13 @@ sealed class KeePassRpcClient : IDisposable
                 },
             }
         );
-        
+
         srp = Setup(await Receive(), "srp");
         if (Text(srp, "stage") != "proofToClient" || Number(Text(srp, "M2")) != expected)
             throw new InvalidOperationException("KeePass SRP proof verification failed.");
-        
+
         key = SHA256.HashData(Encoding.UTF8.GetBytes(Hex(S)));
-        
+
         return new Pairing(username, Convert.ToHexString(key).ToLowerInvariant());
     }
 
@@ -105,24 +105,24 @@ sealed class KeePassRpcClient : IDisposable
         key = Convert.FromHexString(secret);
         if (key.Length != 32)
             throw new InvalidOperationException("Invalid pairing key. Run 'auth' again.");
-        
+
         var identify = IdentityMessage();
         identify["key"] = new JsonObject { ["username"] = pairing.Username, ["securityLevel"] = 2 };
-        
+
         await Send(identify);
-        
+
         var challenge = Setup(await Receive(), "key");
         var sc = Text(challenge, "sc");
         var cc = Convert
             .ToHexString(RandomNumberGenerator.GetBytes(32))
             .ToLowerInvariant()
             .TrimStart('0');
-        
+
         string Digest(string prefix) =>
             Convert
                 .ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(prefix + secret + sc + cc)))
                 .ToLowerInvariant();
-        
+
         await Send(
             new JsonObject
             {
@@ -136,7 +136,7 @@ sealed class KeePassRpcClient : IDisposable
                 },
             }
         );
-        
+
         var result = Setup(await Receive(), "key");
         if (
             !CryptographicOperations.FixedTimeEquals(
@@ -153,7 +153,7 @@ sealed class KeePassRpcClient : IDisposable
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new InvalidOperationException("Entry name cannot be empty.");
-        
+
         var request = Encoding.UTF8.GetBytes(
             new JsonObject
             {
@@ -172,15 +172,15 @@ sealed class KeePassRpcClient : IDisposable
                 ["id"] = 1,
             }.ToJsonString()
         );
-        
+
         using var aes = Aes.Create();
         aes.Key = key!;
         aes.GenerateIV();
-        
+
         var ciphertext = aes.EncryptCbc(request, aes.IV);
         byte[] Mac(byte[] c, byte[] iv) =>
             SHA1.HashData(SHA1.HashData(key!).Concat(c).Concat(iv).ToArray());
-        
+
         await Send(
             new JsonObject
             {
@@ -194,7 +194,7 @@ sealed class KeePassRpcClient : IDisposable
                 },
             }
         );
-        
+
         while (true)
         {
             var envelope = await Receive();
@@ -202,13 +202,13 @@ sealed class KeePassRpcClient : IDisposable
             var c = Convert.FromBase64String(Text(jsonrpc, "message"));
             var iv = Convert.FromBase64String(Text(jsonrpc, "iv"));
             var mac = Convert.FromBase64String(Text(jsonrpc, "hmac"));
-            
+
             if (!CryptographicOperations.FixedTimeEquals(mac, Mac(c, iv)))
                 throw new InvalidOperationException("KeePass message authentication failed.");
-            
+
             using var document = JsonDocument.Parse(aes.DecryptCbc(c, iv));
             var result = document.RootElement;
-            
+
             if (
                 !result.TryGetProperty("id", out var id)
                 || id.ValueKind != JsonValueKind.Number
@@ -220,13 +220,13 @@ sealed class KeePassRpcClient : IDisposable
                 && error.ValueKind != JsonValueKind.Null
             )
                 throw new InvalidOperationException("KeePass RPC error: " + error);
-            
+
             var entries = result.GetProperty("result");
             if (entries.ValueKind != JsonValueKind.Array)
                 throw new InvalidOperationException(
                     "KeePass database is not open or returned no results."
                 );
-            
+
             var matches = entries.EnumerateArray().Where(e => Text(e, "title") == name).ToArray();
             if (matches.Length == 0)
                 throw new InvalidOperationException("No entry with that exact title was found.");
@@ -234,10 +234,10 @@ sealed class KeePassRpcClient : IDisposable
                 throw new InvalidOperationException(
                     "Multiple entries have that title; refusing to choose one."
                 );
-            
+
             string? username = null,
                 password = null;
-            
+
             foreach (var field in matches[0].GetProperty("formFieldList").EnumerateArray())
             {
                 var type = Text(field, "type");
@@ -252,12 +252,12 @@ sealed class KeePassRpcClient : IDisposable
                 )
                     password = Text(field, "value");
             }
-            
+
             if (password == null)
                 throw new InvalidOperationException(
                     "Entry has no password field available through KeePassRPC."
                 );
-            
+
             return new EntryCredentials(username ?? "", password);
         }
     }
@@ -285,27 +285,27 @@ sealed class KeePassRpcClient : IDisposable
         using var buffer = new MemoryStream();
         var chunk = new byte[8192];
         WebSocketReceiveResult result;
-        
+
         do
         {
             result = await socket.ReceiveAsync(
                 new ArraySegment<byte>(chunk),
                 CancellationToken.None
             );
-        
+
             if (result.MessageType == WebSocketMessageType.Close)
                 throw new InvalidOperationException(
                     "KeePass closed the connection. Check the plugin origin configuration and authorization."
                 );
-            
+
             buffer.Write(chunk, 0, result.Count);
-            
+
             if (buffer.Length > 16 * 1024 * 1024)
                 throw new InvalidOperationException("KeePass response exceeds 16 MB.");
         } while (!result.EndOfMessage);
-        
+
         using var document = JsonDocument.Parse(buffer.ToArray());
-        
+
         return document.RootElement.Clone();
     }
 
