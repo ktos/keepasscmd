@@ -5,6 +5,11 @@ on:
   push:
     branches:
       - master
+    paths-ignore:
+      - '**/*.md'
+      - '.github/**'
+      - '.gitignore'
+      - 'LICENSE*'
 
 env:
   VERSION: 1.0.${{ github.run_number }}
@@ -25,11 +30,11 @@ jobs:
         dotnet-version: 11.0.x        
 
     - name: Build
-      run: dotnet build -c Release -r win-${{ matrix.platform }} -p:Version=${{ env.VERSION }}
+      run: dotnet build KeePassCmd.csproj -c Release -r win-${{ matrix.platform }} -p:Version=${{ env.VERSION }}
 
     - name: Publish
       if: github.event_name == 'push'
-      run: dotnet publish -c Release -r win-${{ matrix.platform }} -f net11.0 -p:PublishSingleFile=true -p:Version=${{ env.VERSION }} -o publish/win-${{ matrix.platform }}
+      run: dotnet publish KeePassCmd.csproj -c Release -r win-${{ matrix.platform }} -f net11.0 -p:PublishSingleFile=true -p:Version=${{ env.VERSION }} -o publish/win-${{ matrix.platform }}
 
     - name: Upload artifact for release job
       if: github.event_name == 'push'
